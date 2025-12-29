@@ -1,0 +1,8 @@
+.vscode
+**/__pycache__/
+**/*.pyc
+**/datasets/
+**/models/
+
+.DS_Store
+venv/
