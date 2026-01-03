@@ -30,8 +30,8 @@ BIOES格式示例（推荐）：
     我      O
     在      O
     北      B-LOC
-    京      E-LOC
-    市      S-LOC
+    京      I-LOC
+    市      E-LOC
     工      O
     作      O
 
