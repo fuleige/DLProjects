@@ -235,7 +235,8 @@ def export_to_onnx(model, tokenizer, output_path, example_text="北京是中国�
     # 导出ONNX
     torch.onnx.export(
         model,
-        (inputs['input_ids'], inputs['attention_mask']),
+        (inputs['input_ids'].to(model.device),
+         inputs['attention_mask'].to(model.device)),
         output_path,
         input_names=['input_ids', 'attention_mask'],
         output_names=['logits'],
@@ -290,8 +291,9 @@ def predict_ner(text, model, tokenizer, label_list, device='cpu'):
 
     # 分词
     inputs = tokenizer(
-        text,
+        [item for item in text],
         return_tensors="pt",
+        is_split_into_words=True,
         padding=True,
         truncation=True,
         max_length=512,
@@ -321,12 +323,13 @@ def predict_ner(text, model, tokenizer, label_list, device='cpu'):
                 'start': offset[0].item(),
                 'end': offset[1].item()
             })
-
+    # 这里只打印了token级别的结果，实际应用中可能需要根据offset进行实体拼接, 还原文本
     return results
 
 
 def main():
 
+    # 下载模型命令 hf dowbload google-bert/bert-base-chinese --local-dir ./models/bert-base-chinese
     model_path = "./models/bert-base-chinese"
     data_dir = "./datasets/msra_ner"
     output_dir = "./output/ner_model"
@@ -392,9 +395,8 @@ def main():
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="f1",
-        logging_dir=f"{output_dir}/logs",
         logging_steps=10,
-        warmup_steps=500,
+        warmup_steps=200,
         save_total_limit=2,
         fp16=torch.cuda.is_available(),  # 如果有GPU则使用混合精度
     )
@@ -412,13 +414,13 @@ def main():
         data_collator=data_collator,
         compute_metrics=lambda p: compute_metrics(p, label_list)
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=True)
 
     # 5. 预测部分示例
 
     test_texts = [
         "我来自北京大学，现在在上海工作。",
-        "苹果公司的CEO蒂姆·库克访问了中国。",
+        "苹果公司的蒂姆·库克访问了中国。",
         "张三在清华大学学习计算机科学。"
     ]
 
@@ -432,12 +434,12 @@ def main():
             print(f"  {result['token']: <10} -> {result['label']}")
 
     # 6. 导出为ONNX模型
-    # onnx_output_path = os.path.join(output_dir, "ner_model.onnx")
-    # export_to_onnx(model, tokenizer, onnx_output_path,
-    #                example_text=test_texts[0])
+    onnx_output_path = os.path.join(output_dir, "ner_model.onnx")
+    export_to_onnx(model, tokenizer, onnx_output_path,
+                   example_text=test_texts[0])
 
-    # print(f"Model saved to: {output_dir}")
-    # print(f"ONNX model saved to: {onnx_output_path}")
+    print(f"Model saved to: {output_dir}")
+    print(f"ONNX model saved to: {onnx_output_path}")
 
 
 if __name__ == "__main__":
