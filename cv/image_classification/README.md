@@ -126,3 +126,37 @@ python cv/image_classification/example.py \
 - 你的最终目标是高精度、低时延，还是教学理解
 
 对大多数入门实战来说，`convnextv2_tiny` 比 `resnet18` 更值得作为默认起点；对部署场景来说，`mobilenetv4_conv_small` 往往更合适。
+
+## 6. 图像分类量化（torchao）
+
+如果你接下来想做的是“把分类模型量化后部署”，建议不要直接在当前这个 `timm` 示例上硬改。更清晰的路线是先用仓库里单独拆出来的量化分支目录：
+
+- 教程：`cv/image_classification/quantization/README.md`
+- 代码：`cv/image_classification/quantization/train.py`
+
+这套量化示例有两个特点：
+
+- 教学上更清楚：它专门围绕 `ResNet18 / MobileNetV3` 这类更适合讲解 `PTQ/QAT` 的 CNN 写。
+- 实战上更稳：直接对齐当前 `torchao` 官方推荐的 `PT2E` 量化路线，而不是旧版 `torch.ao.quantization` API。
+
+如果只想先快速体验完整对比，可以直接运行：
+
+```bash
+python3 cv/image_classification/quantization/train.py \
+  --mode compare \
+  --dataset-type cifar100 \
+  --model-name resnet18 \
+  --float-epochs 1 \
+  --qat-epochs 1 \
+  --train-subset 2000 \
+  --val-subset 1000 \
+  --calib-batches 10
+```
+
+这条命令会顺序输出：
+
+- float32 基线
+- PTQ int8 结果
+- QAT int8 结果
+
+如果你想理解“为什么图像分类优先用 `PT2E`、什么时候该用 PTQ、什么时候该上 QAT、`quantize_()` 为什么不适合作为经典 CNN 的默认方案”，直接看这个量化分支目录下的教程会更完整。
