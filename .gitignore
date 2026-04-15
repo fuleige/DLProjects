@@ -1,8 +1,10 @@
 .vscode
+.codex
 **/__pycache__/
 **/*.pyc
 **/datasets/
 **/models/
+**/outputs/
 
 .DS_Store
 venv/
