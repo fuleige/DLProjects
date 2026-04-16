@@ -42,7 +42,7 @@
 #### 当前已实现示例
 - `cv/image_classification/`：图像分类完整流程示例，默认使用 CIFAR-100，支持切换到用户自定义目录数据集，并补充现代模型选型说明；目录下额外提供 `quantization/` 分支，用于 torchao 的 PTQ / QAT 量化实战。
   当前仓库对这条量化线采用“教程和代码分离”的组织方式：
-  教程放在 `docs/model_compression/torchao_quantization_guide.md`，可运行实现放在 `cv/image_classification/quantization/`。
+  文档入口放在 `docs/model_compression/README.md`，可运行实现放在 `cv/image_classification/quantization/`。
   这样既保留了图像分类任务上下文，也能把量化明确标成工程化专题内容。
 
 ### 3.2 增强与低层视觉
@@ -242,7 +242,9 @@
 
 当前仓库里已经有一条“工程化教程 + 任务代码”分离的量化落地示例：
 
-- 教程：`docs/model_compression/torchao_quantization_guide.md`
+- 文档索引：`docs/model_compression/README.md`
+- torchao 路线总览：`docs/model_compression/torchao_quantization_guide.md`
+- 仓库实战说明：`docs/model_compression/torchao_pt2e_image_classification.md`
 - 代码：`cv/image_classification/quantization/`
 
 这样拆分的原因是：

@@ -2,10 +2,11 @@
 
 这个目录保存的是 **可运行实现和实验产物入口**，不再承担完整教程的职责。
 
-如果你想系统理解 `torchao` 的 `PTQ / QAT / PT2E` 路线、训练与部署设备如何拆分、不同 backend 该怎么解读，请直接看工程化教程：
+如果你想先把量化原理学清楚，再理解 `torchao` 的 `PTQ / QAT / PT2E` 路线、训练与部署设备如何拆分、不同 backend 该怎么解读，请直接看文档目录：
 
-- [torchao 量化指南](../../../docs/model_compression/torchao_quantization_guide.md)
 - [模型压缩文档索引](../../../docs/model_compression/README.md)
+- [torchao 量化路线总览](../../../docs/model_compression/torchao_quantization_guide.md)
+- [torchao PT2E 图像分类实战](../../../docs/model_compression/torchao_pt2e_image_classification.md)
 
 如果你想直接运行实验，看这个目录即可。
 
@@ -80,9 +81,10 @@ python3 cv/image_classification/quantization/train.py \
 
 如果你是第一次接触这条线，建议按这个顺序看：
 
-1. 先读 [torchao 量化指南](../../../docs/model_compression/torchao_quantization_guide.md)
-2. 再看 `train.py` 如何把 float / PTQ / QAT 串起来
-3. 最后看 [BENCHMARK.md](./BENCHMARK.md) 理解结果该怎么解释
+1. 先读 [模型压缩文档索引](../../../docs/model_compression/README.md)
+2. 再读 [torchao PT2E 图像分类实战](../../../docs/model_compression/torchao_pt2e_image_classification.md)
+3. 然后看 `train.py` 如何把 float / PTQ / QAT 串起来
+4. 最后看 [BENCHMARK.md](./BENCHMARK.md) 理解结果该怎么解释
 
 这样更符合这个仓库的分工：
 

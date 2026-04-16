@@ -13,7 +13,7 @@
 
 所以当前仓库采取的是：
 
-- 教程放在 `docs/model_compression/torchao_quantization_guide.md`
+- 文档入口放在 `docs/model_compression/README.md`
 - 可运行代码放在 `cv/image_classification/quantization/`
 
 这种组织方式更适合当前阶段，因为它既保留了任务上下文，也把量化明确沉淀成工程化专题，而不是继续塞在任务 README 里讲成长教程。
@@ -143,7 +143,9 @@ python cv/image_classification/example.py \
 
 如果你接下来想做的是“把分类模型量化后部署”，建议不要直接在当前这个 `timm` 示例上硬改。更清晰的路线是先用仓库里单独拆出来的量化分支目录：
 
-- 教程：[docs/model_compression/torchao_quantization_guide.md](../../docs/model_compression/torchao_quantization_guide.md)
+- 文档索引：[docs/model_compression/README.md](../../docs/model_compression/README.md)
+- torchao 路线总览：[docs/model_compression/torchao_quantization_guide.md](../../docs/model_compression/torchao_quantization_guide.md)
+- 仓库实战说明：[docs/model_compression/torchao_pt2e_image_classification.md](../../docs/model_compression/torchao_pt2e_image_classification.md)
 - 代码目录：[cv/image_classification/quantization/](./quantization/)
 - 运行入口：`cv/image_classification/quantization/train.py`
 - 实验记录：`cv/image_classification/quantization/BENCHMARK.md`
@@ -178,4 +180,4 @@ python3 cv/image_classification/quantization/train.py \
 - QAT 微调优先用 GPU
 - 最终真实量化验证和 deploy benchmark 再回到 CPU
 
-如果你想理解“为什么图像分类优先用 `PT2E`、什么时候该用 PTQ、什么时候该上 QAT、训练和部署设备为什么要分开”，直接看上面的工程化教程会更完整；如果你只想运行实验，看这个目录下的代码和 benchmark 即可。
+如果你想先把量化原理学清楚，再理解“为什么图像分类优先用 `PT2E`、什么时候该用 PTQ、什么时候该上 QAT、训练和部署设备为什么要分开”，直接按上面的文档索引阅读会更完整；如果你只想运行实验，看这个目录下的代码和 benchmark 即可。
