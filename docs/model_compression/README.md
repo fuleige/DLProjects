@@ -4,11 +4,11 @@
 
 当前已补充：
 
-- [torchao 量化指南：PTQ、QAT 与图像分类落地](./torchao_quantization_guide.md)
+- [torchao 量化指南：从基础理论到 PTQ / QAT 图像分类落地](./torchao_quantization_guide.md)
 
 这类文档的定位是：
 
-- 解释方法选择、工程决策和常见坑点
+- 解释基础理论、方法选择、工程决策和常见坑点
 - 统一沉淀跨实验可复用的使用指南
 - 与具体任务代码目录解耦
 
