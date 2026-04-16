@@ -41,6 +41,9 @@
 
 #### 当前已实现示例
 - `cv/image_classification/`：图像分类完整流程示例，默认使用 CIFAR-100，支持切换到用户自定义目录数据集，并补充现代模型选型说明；目录下额外提供 `quantization/` 分支，用于 torchao 的 PTQ / QAT 量化实战。
+  当前仓库对这条量化线采用“教程和代码分离”的组织方式：
+  教程放在 `docs/model_compression/torchao_quantization_guide.md`，可运行实现放在 `cv/image_classification/quantization/`。
+  这样既保留了图像分类任务上下文，也能把量化明确标成工程化专题内容。
 
 ### 3.2 增强与低层视觉
 - 超分辨率
@@ -236,6 +239,24 @@
 - 导出与推理（ONNX/Runtime）（目录预留）
 - 服务化（REST/gRPC）（目录预留）
 - 模型压缩（量化/剪枝/蒸馏）（目录预留）
+
+当前仓库里已经有一条“工程化教程 + 任务代码”分离的量化落地示例：
+
+- 教程：`docs/model_compression/torchao_quantization_guide.md`
+- 代码：`cv/image_classification/quantization/`
+
+这样拆分的原因是：
+
+- `docs/` 更适合沉淀方法说明、工程决策和使用指南
+- `cv/` 更适合保留具体任务里的训练、QAT、PTQ、benchmark 可运行实现
+- 当前代码仍然强依赖“图像分类 + CNN + torchao PT2E”这一具体场景，因此不适合直接整体搬到 `tooling/`
+
+如果后续仓库里继续补出：
+
+- NLP / 多模态 / 推荐等任务的通用量化脚本
+- 共享的导出、benchmark、结果落盘、模型压缩组件
+
+再把共性部分进一步抽到 `tooling/model_compression/` 会更合理。
 
 ---
 

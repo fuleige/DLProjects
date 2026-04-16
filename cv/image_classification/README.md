@@ -6,6 +6,18 @@
 - 用 `timm` 接入较新的分类模型，而不是只用很老的 baseline。
 - 明确说明如果换成用户自定义数据集，数据目录应该怎么整理。
 
+这个目录下的 `quantization/` 需要特别说明一下它的定位：
+
+- 从任务归属看，它属于 `image_classification`，因为量化流程、模型选择和结果解释都围绕图像分类展开。
+- 从能力归属看，它也属于“工程化 / 推理部署 / 模型压缩”专题，因为核心目标是把分类模型进一步落到 PTQ / QAT 部署链路。
+
+所以当前仓库采取的是：
+
+- 教程放在 `docs/model_compression/torchao_quantization_guide.md`
+- 可运行代码放在 `cv/image_classification/quantization/`
+
+这种组织方式更适合当前阶段，因为它既保留了任务上下文，也把量化明确沉淀成工程化专题，而不是继续塞在任务 README 里讲成长教程。
+
 ## 1. 依赖
 
 建议先按 [PyTorch 官方文档](https://pytorch.org/get-started/locally/) 安装与你环境匹配的 `torch` 和 `torchvision`，再安装：
@@ -131,8 +143,10 @@ python cv/image_classification/example.py \
 
 如果你接下来想做的是“把分类模型量化后部署”，建议不要直接在当前这个 `timm` 示例上硬改。更清晰的路线是先用仓库里单独拆出来的量化分支目录：
 
-- 教程：`cv/image_classification/quantization/README.md`
-- 代码：`cv/image_classification/quantization/train.py`
+- 教程：[docs/model_compression/torchao_quantization_guide.md](../../docs/model_compression/torchao_quantization_guide.md)
+- 代码目录：[cv/image_classification/quantization/](./quantization/)
+- 运行入口：`cv/image_classification/quantization/train.py`
+- 实验记录：`cv/image_classification/quantization/BENCHMARK.md`
 
 这套量化示例有两个特点：
 
@@ -159,4 +173,9 @@ python3 cv/image_classification/quantization/train.py \
 - PTQ int8 结果
 - QAT int8 结果
 
-如果你想理解“为什么图像分类优先用 `PT2E`、什么时候该用 PTQ、什么时候该上 QAT、`quantize_()` 为什么不适合作为经典 CNN 的默认方案”，直接看这个量化分支目录下的教程会更完整。
+当前这条量化线还采用一个明确原则：
+
+- QAT 微调优先用 GPU
+- 最终真实量化验证和 deploy benchmark 再回到 CPU
+
+如果你想理解“为什么图像分类优先用 `PT2E`、什么时候该用 PTQ、什么时候该上 QAT、训练和部署设备为什么要分开”，直接看上面的工程化教程会更完整；如果你只想运行实验，看这个目录下的代码和 benchmark 即可。
