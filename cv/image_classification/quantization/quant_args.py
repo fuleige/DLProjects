@@ -148,14 +148,14 @@ def parse_args():
     parser.add_argument(
         "--float-device",
         choices=["auto", "cpu", "cuda"],
-        default="auto",
-        help="浮点模型训练设备。",
+        default="cuda",
+        help="浮点模型训练设备。当前示例默认使用 CUDA，不再静默回退到 CPU。",
     )
     parser.add_argument(
         "--qat-device",
         choices=["auto", "cpu", "cuda"],
-        default="auto",
-        help="QAT fake-quant 微调设备。默认优先使用 CUDA，最终量化验证和 CPU benchmark 仍在 CPU。",
+        default="cuda",
+        help="QAT fake-quant 微调设备。当前示例默认使用 CUDA，最终量化验证和 CPU benchmark 仍在 CPU。",
     )
     parser.add_argument(
         "--output-dir",

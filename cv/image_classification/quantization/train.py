@@ -1,3 +1,15 @@
+"""torchao PT2E image classification example.
+
+Flow:
+1. Train or reuse a float CNN baseline.
+2. Run PTQ with export -> prepare_pt2e -> calibration -> convert_pt2e.
+3. Run QAT with export -> prepare_qat_pt2e -> fine-tune -> convert_pt2e.
+4. Compare float / PTQ / QAT accuracy and CPU deployment benchmarks.
+
+This example intentionally sticks to classic CNNs so the quantization workflow
+stays easier to read than a more general timm-style model zoo.
+"""
+
 import gc
 from pathlib import Path
 
@@ -46,20 +58,6 @@ except ImportError:
     from quant_pt2e import run_ptq, run_qat
     from quant_types import CompareResult, MODEL_SPECS
 
-"""
-torchao 图像分类量化示例：
-1. 先训练或加载一个浮点分类模型。
-2. 用 PT2E 路线完成 PTQ（export -> prepare_pt2e -> calibrate -> convert_pt2e）。
-3. 用 PT2E 路线完成 QAT（export -> prepare_qat_pt2e -> fine-tune -> convert_pt2e）。
-4. 输出 float / PTQ / QAT 的精度、部署速度和资源占用对比。
-
-这里故意使用 torchvision 的经典 CNN，而不是任意 timm 模型。原因是：
-- torchao 当前图像分类 PT2E 教程主要围绕标准 CNN 展开；
-- ResNet / MobileNet 这类 Conv2d + BatchNorm + Linear 模型更适合作为 static int8 教学模板；
-- 这样能把“量化流程本身”讲清楚，而不是先被模型导出兼容性问题干扰。
-"""
-
-
 def summarize_context(args, train_dataset, calib_dataset, val_dataset, num_classes, output_dir):
     spec = MODEL_SPECS[args.model_name]
     print(f"数据集类型: {args.dataset_type}")
@@ -71,6 +69,8 @@ def summarize_context(args, train_dataset, calib_dataset, val_dataset, num_class
     print(f"说明: {spec.summary}")
     print(f"建议场景: {spec.recommended_for}")
     print(f"量化 backend: {args.backend}")
+    print(f"float 训练设备参数: {args.float_device}")
+    print(f"QAT 微调设备参数: {args.qat_device}")
     print(f"实验输出目录: {output_dir}")
 
 
@@ -140,7 +140,7 @@ def build_qat_result(args, metrics, eager_benchmark, deploy_benchmark, train_pea
         benchmark_rss_delta_mb=preferred_benchmark.rss_delta_mb,
         train_peak_cuda_mb=train_peak_cuda_mb,
         notes=(
-            "QAT 微调默认优先走 GPU；最终量化验证来自 CPU，"
+            "QAT 微调默认走 GPU；最终量化验证来自 CPU，"
             f"{get_deploy_note(args.backend)}，"
             f"prepared ckpt: {checkpoint_path.name}"
         ),
@@ -205,6 +205,7 @@ def main():
         return
 
     if args.mode == "ptq":
+        # PTQ reuses the float checkpoint, then only runs prepare/calibration/convert.
         _, ptq_metrics, ptq_eager_benchmark, ptq_deploy_benchmark = run_ptq(
             args,
             calib_loader,
@@ -224,6 +225,8 @@ def main():
         return
 
     if args.mode == "qat":
+        # QAT also starts from the same float checkpoint, but keeps training with
+        # fake quant enabled before converting to the final quantized model.
         (
             _,
             qat_metrics,
@@ -257,6 +260,8 @@ def main():
         )
         return
 
+    # compare mode follows the intended engineering decision order:
+    # float baseline -> PTQ -> QAT, all branching from the same float checkpoint.
     _, ptq_metrics, ptq_eager_benchmark, ptq_deploy_benchmark = run_ptq(
         args,
         calib_loader,

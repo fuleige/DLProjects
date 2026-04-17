@@ -11,7 +11,7 @@
 1. [量化基础原理：从公式到手写实现](./quantization_fundamentals.md)
 2. [量化工作流：PTQ、QAT、Observer 与 Calibration](./quantization_workflows.md)
 3. [torchao 量化路线总览与阅读指南](./torchao_quantization_guide.md)
-4. [torchao PT2E 图像分类实战：对应本仓库实现](./torchao_pt2e_image_classification.md)
+4. [torchao PT2E 图像分类实战：代表性代码讲解](./torchao_pt2e_image_classification.md)
 
 ## 各文档分工
 
@@ -28,8 +28,8 @@
   - 重点讲清楚 `quantize_()` 和 `PT2E` 各自适合什么场景，以及阅读 torchao 官方文档时该怎么对照前两份基础文档。
 
 - [torchao_pt2e_image_classification.md](./torchao_pt2e_image_classification.md)
-  - 只讲本仓库的图像分类量化示例。
-  - 重点把 `cv/image_classification/quantization/` 的实现和前面的基础知识一一对应起来。
+  - 只挑本仓库里最有代表性的 PT2E 图像分类代码来讲。
+  - 重点把 `train.py`、`quant_core.py`、`quant_pt2e.py` 里的关键流程和前面的基础知识一一对应起来。
 
 ## 和代码目录的关系
 

@@ -1,10 +1,14 @@
-# torchao PT2E 图像分类实战：对应本仓库实现
+# torchao PT2E 图像分类实战：代表性代码讲解
 
 这份文档只讲一件事：
 
-- **本仓库里的 `cv/image_classification/quantization/` 到底是怎么把前面的量化基础知识落成可运行代码的。**
+- **本仓库里的 `cv/image_classification/quantization/` 到底有哪些最值得对着看的代表性代码。**
 
-它不是量化原理文档，也不是 torchao 全景文档。
+它不是运行手册，也不再展开目录职责、参数表、结果文件说明。
+
+这些内容已经放回：
+
+- [cv/image_classification/quantization/README.md](../../cv/image_classification/quantization/README.md)
 
 在开始之前，建议你至少已经读过：
 
@@ -14,468 +18,358 @@
 
 ---
 
-## 1. 这套示例要解决什么问题
+## 1. 先看总控入口：`main()` 如何把整条线串起来
 
-当前仓库这条量化线的目标很明确：
+如果你只想先抓整条主线，先看：
 
-- 先拿到一个稳定的 float 图像分类模型
-- 再对比 `PTQ` 和 `QAT`
-- 最后按 CPU deploy 口径解释 benchmark
+- [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:155) 里的 `main()`
 
-所以它更像一条：
+这一段代码做了 4 件事：
 
-- **教学导向的 CNN static int8 模板**
+1. 解析参数，构造数据和输出目录
+2. 训练或复用 float checkpoint
+3. 按 `mode` 分叉到 `PTQ`、`QAT` 或 `compare`
+4. 把结果整理并落盘
 
-而不是：
+你可以先把总流程记成：
 
-- 任意 backbone 的量化工具箱
-- LLM / ViT 的 `quantize_()` 示例
-- 真实移动端 on-device benchmark 框架
+```text
+build data
+   ->
+train or reuse float checkpoint
+   ->
+run_ptq(...) or run_qat(...)
+   ->
+build result rows
+   ->
+write compare artifacts
+```
 
----
-
-## 2. 当前代码目录怎么分工
-
-目录在：
-
-- `cv/image_classification/quantization/`
-
-主要文件分工如下：
-
-| 文件 | 作用 |
-| --- | --- |
-| `train.py` | 总入口，串起 float / PTQ / QAT / compare |
-| `quant_args.py` | CLI 参数定义 |
-| `quant_core.py` | 数据、模型、训练、验证、checkpoint |
-| `quant_pt2e.py` | `torch.export`、quantizer、PTQ / QAT 主流程 |
-| `quant_benchmark.py` | CPU eager / deploy benchmark 与结果落盘 |
-| `run_benchmark.sh` | `smoke / formal` 复现实验入口 |
-
-如果你只想知道“流程从哪开始看”，先看：
-
-- `train.py`
-
-如果你只想知道“量化到底在哪做”，重点看：
-
-- `quant_pt2e.py`
+这也是为什么这里推荐先看 `train.py`，再去看 `quant_pt2e.py`。
 
 ---
 
-## 3. 为什么这里故意选经典 CNN
+## 2. 代表性代码一：为什么这里会同时构造 `train / calib / val` 三种视角
 
-当前示例默认支持：
+最值得先看的函数是：
 
-- `resnet18`
-- `mobilenet_v3_small`
+- [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:114) 里的 `build_datasets(...)`
 
-这是刻意选择，不是因为它们最先进，而是因为它们更适合教学。
+这一段代码最重要的点，不是“读了几个数据集”，而是：
 
-原因有三个：
+- **它刻意把训练、校准、验证拆成了三种视角。**
 
-1. 它们更贴近 `Conv2d + BatchNorm + ReLU + Linear` 的经典 static int8 场景
-2. 图结构更稳定，更适合先把 `PT2E` 流程讲清楚
-3. 初学者不应该一开始就被任意 backbone 的 `export` 兼容性打断
-
-所以这条线的优先目标是：
-
-- 先学会量化流程
-
-而不是：
-
-- 一上来就覆盖所有模型家族
-
----
-
-## 4. 训练集、校准集、验证集在这套实现里分别是什么
-
-这是这套示例里一个很关键的设计点。
-
-### 4.1 三种“视角”，不是三份完全独立的数据
-
-当前代码在 [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:111) 里会构造：
+对 CIFAR-100 来说，代码实际上会构造：
 
 - `train_dataset`
 - `calib_dataset`
 - `val_dataset`
 
-但要注意：
+其中：
 
 - `train_dataset` 和 `calib_dataset` 默认都来自训练集
-- 区别主要在 transform
+- 但 `train_dataset` 用训练增强
+- `calib_dataset` 用评估态预处理
 
-具体来说：
+这背后的设计意图是：
 
-- `train_dataset` 使用训练增强
-- `calib_dataset` 使用评估态预处理
-- `val_dataset` 使用验证集 + 评估态预处理
+- 训练视角要更像训练
+- 校准视角要更像部署前输入分布
+- 验证视角要更像最终评估
 
-所以这里的重点不是“硬切第三份 calibration split”，而是：
+所以这里不是在强调“必须单独切第三份数据”，而是在强调：
 
-- 训练视角
-- 校准视角
-- 验证视角
+- **calibration 需要代表部署时的输入分布。**
 
-### 4.2 为什么 calibration 不直接复用训练增强
+这也解释了为什么同一个 `--train-subset` 会同时影响：
 
-因为 calibration 的目标不是继续训练模型，而是估计：
+- 训练样本数量
+- calibration 覆盖范围
 
-- 真实部署时的激活范围
-
-所以它更应该贴近：
-
-- 推理态输入分布
-- 评估态 transform
-
-这也是为什么当前实现特意给 `calib_dataset` 用了：
-
-- `eval_transform`
-
-### 4.3 一个容易忽略的细节
-
-当前 CLI 的：
-
-- `--train-subset`
-
-会同时裁剪：
-
-- `train_dataset`
-- `calib_dataset`
-
-也就是说，如果你把 `--train-subset` 调得很小：
-
-- 训练样本会变少
-- calibration 覆盖范围也会一起变窄
-
-这在烟测时是合理的，但在正式比较时要有意识。
+如果你只对着一段代码看，这一段最适合帮助你把“训练集 / 校准集 / 验证集”三个角色分清。
 
 ---
 
-## 5. PTQ 在这套实现里是怎么落地的
+## 3. 代表性代码二：PTQ 的核心链路到底落在哪
 
-对应代码主入口：
+PTQ 主入口在：
 
-- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:153) 里的 `run_ptq(...)`
+- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:161) 的 `run_ptq(...)`
 
-### 5.1 先按流程看一遍
+如果你只想抓主干，这条链路最值得记住：
 
-当前 PTQ 实际顺序是：
+```text
+float checkpoint
+   -> export_with_dynamic_batch(...)
+   -> build_quantizer(...)
+   -> prepare_pt2e(...)
+   -> calibrate(...)
+   -> convert_pt2e(...)
+   -> evaluate / benchmark
+```
 
-1. 从 `train.py` 得到或复用一份 float checkpoint
-2. 在 `run_ptq(...)` 里把 float 模型加载到 CPU
-3. 构造 export 示例输入
-4. 调 `export_with_dynamic_batch(...)`
-5. 调 `build_quantizer(...)`
-6. 调 `prepare_pt2e(...)`
-7. 用 `calib_loader` 跑 calibration
-8. 调 `convert_pt2e(...)`
-9. 在 CPU 上评估验证集
-10. 在 CPU 上做 eager 和 deploy benchmark
+这里最有代表性的代码有 4 处。
 
-### 5.2 这和前面学过的工作流怎么对应
+### 3.1 `export_with_dynamic_batch(...)`
 
-| 你学过的概念 | 当前实现里的对应步骤 |
-| --- | --- |
-| float baseline | `train.py` 先训练或复用 `float_best.pth` |
-| observer / prepare | `prepare_pt2e(...)` |
-| calibration | `calibrate(prepared_model, calib_loader, ...)` |
-| convert | `convert_pt2e(...)` |
-| deploy benchmark | `quant_benchmark.py` 里的 benchmark 逻辑 |
+对应函数：
 
-### 5.3 quantizer 到底在这里决定了什么
+- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:30)
 
-当前 quantizer 由：
+它做的不是量化本身，而是：
 
-- [build_quantizer(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:69)
+- 先把 float 模型导出成更适合 PT2E 处理的图
+- 并给 batch 维保留动态范围
 
-负责构造。
+可以先把它理解成：
 
-当前支持两个 backend：
+- **后面 `prepare / convert` 能顺利工作，先得有一张 exported graph。**
 
-- `x86_inductor`
-- `xnnpack`
+### 3.2 `build_quantizer(...)`
 
-其中当前更推荐先用：
+对应函数：
 
-- `x86_inductor`
+- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:70)
 
-因为：
+它主要决定两件事：
 
-- 依赖更少
-- 在普通 x86 CPU 上更容易先跑通
+1. 你现在选的是哪个 backend
+2. 这个 backend 下量化配置该怎么构造
 
-### 5.4 为什么这里强调“当前走的是 static 路线”
+当前这条示例线最重要的一点是：
 
-因为在 `x86_inductor` 分支里，代码会在 API 支持时显式传：
+- 它刻意把 `x86_inductor` 这条线锁在 static int8 场景
 
-- `is_dynamic=False`
+所以如果你是第一次看这段代码，不要把它理解成“任意量化配置工厂”，而要理解成：
 
-这意味着当前示例不是在讲：
+- **当前教学示例在这里把 backend 约束具体落到了代码里。**
 
-- dynamic activation quantization
+### 3.3 `prepare_pt2e(...)` 和 `calibrate(...)`
 
-而是在讲：
+`prepare_pt2e(...)` 在 `run_ptq(...)` 里直接调用，`calibrate(...)` 则是：
 
-- static PTQ / static QAT
+- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:152)
 
-对初学者来说，这一点非常重要。
+这里最值得看清的是分工：
 
-否则你会把：
+- `prepare_pt2e(...)`
+  - 把模型从普通 float 图变成“可量化准备态”
+- `calibrate(...)`
+  - 真正让 observer 看一批代表性输入，收集激活统计
 
-- `quantize_()` 里的 dynamic 路线
-- 这里的 `PT2E` static 路线
+也就是说：
 
-混成一件事。
+- `prepare` 不是“已经量化好了”
+- `calibration` 也不是“继续训练”
+
+它们一个负责把工具装进去，一个负责喂数据收统计。
+
+### 3.4 `convert_pt2e(...)`
+
+`convert_pt2e(...)` 是 PTQ 链路里真正把准备态模型转成最终量化模型的步骤。
+
+在这一套实现里，PTQ 为什么刻意从 CPU 开始、最后也在 CPU 评估？
+
+因为当前示例的目标不是：
+
+- 先在 GPU 上把流程凑齐
+
+而是：
+
+- **让最终量化精度和 deploy benchmark 口径都落在 CPU 上。**
+
+这也是为什么 `run_ptq(...)` 里会：
+
+- 从 CPU 恢复 float checkpoint
+- 在 CPU 上 calibration
+- 在 CPU 上评估和 benchmark
 
 ---
 
-## 6. QAT 在这套实现里是怎么落地的
+## 4. 代表性代码三：QAT 的核心链路到底和 PTQ 差在哪
 
-对应代码主入口：
+QAT 主入口在：
 
-- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:208) 里的 `run_qat(...)`
+- [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:220) 的 `run_qat(...)`
 
-### 6.1 当前 QAT 实际顺序
+最值得先抓住的差别只有一句：
 
-1. 从 float checkpoint 恢复模型
-2. 把模型放到 `qat_device`
-3. 用设备上的示例输入做 `torch.export`
-4. 调 `prepare_qat_pt2e(...)`
-5. 用 `AdamW + CosineAnnealingLR` 做 fake-quant 微调
-6. 每轮结束做一次 `Val(FakeQ)` 评估
-7. 到设定 epoch 后关闭 observer
-8. 到设定 epoch 后冻结 BatchNorm 统计量
-9. 保存 best prepared state
-10. 训练后转回 CPU
-11. 调 `convert_pt2e(...)`
-12. 做最终 CPU 评估与 benchmark
+- **PTQ 的中间阶段是 calibration，QAT 的中间阶段是 fake quant 训练。**
 
-### 6.2 为什么 QAT 训练可以放在 GPU
+它的主链路可以先记成：
 
-因为训练阶段本质上仍然是：
+```text
+float checkpoint
+   -> export_with_dynamic_batch(...)
+   -> prepare_qat_pt2e(...)
+   -> fake quant fine-tune
+   -> disable observer / freeze BN
+   -> convert_pt2e(...)
+   -> final CPU evaluate / benchmark
+```
 
-- float 图上的 fake quant 训练
+### 4.1 为什么 QAT 先放到 GPU，再回到 CPU
 
-它不是：
+这段代码最有教学价值的地方，是它把“训练设备”和“部署设备”明确拆开了。
 
-- 真正的 int8 整数训练
+在 `run_qat(...)` 里：
 
-所以把 QAT 微调放到 GPU 是合理的。
+- float checkpoint 先被恢复到 `qat_device`
+- fake quant 微调也在 `qat_device` 上进行
 
-但要特别注意：
-
-- GPU 上做的是训练/微调
-- 最终部署口径仍然是 CPU
-
-这也是为什么当前实现会在训练完成后：
+但训练完成后，代码又会：
 
 - 把 prepared model 转回 CPU
 - 再 `convert_pt2e(...)`
-- 再做真实 deploy benchmark
+- 再做最终 CPU 评估和 benchmark
 
-### 6.3 当前实现里一个很具体的约束
+这想强调的是：
 
-在 [run_qat(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:224) 里，当前代码要求：
+- **当前示例默认把 QAT fake quant 微调放到 GPU**
+- **但最终量化模型的验证和部署口径仍然应该回到目标设备**
 
-- `--batch-size >= 2`
+### 4.2 `prepare_qat_pt2e(...)` 之后模型发生了什么
 
-原因是：
+这一点在代码里非常关键：
 
-- QAT 导出时把动态 batch 下界设成了 `min_batch=2`
+- `prepare_qat_pt2e(...)` 之后，模型已经不是普通 float 模型
+- 它变成了一张“可以继续做 fake quant 训练”的准备态图
+
+所以你在这之后看到的训练，不是在训练一个原始 float 模型，而是在训练一个：
+
+- **前向过程中会模拟量化误差的模型。**
+
+### 4.3 为什么会有“关闭 observer”和“冻结 BN”
+
+对应代码在：
+
+- [disable_observer_if_supported(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:122)
+- [freeze_bn_stats_in_exported_graph(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:128)
+
+这两步都发生在 QAT 后期。
+
+可以先用最实用的角度理解：
+
+- 训练前期，observer 还需要继续看分布
+- 到了后期，希望量化参数和 BN 统计量逐步稳定下来
+
+所以代码会按 epoch：
+
+- 先关闭 observer
+- 再冻结 BN 统计量
+
+如果你以前只在文档里见过这两个概念，这一段代码最适合帮助你把它们和真实训练过程对应起来。
+
+### 4.4 为什么这里要求 `batch size >= 2`
+
+这不是随便加的限制。
+
+在当前实现里：
+
+- QAT 导出图时把动态 batch 下界设成了 `min_batch=2`
 - 训练和验证也会跳过小于 2 的 batch
 
-所以如果你把 batch size 设成 1：
+所以这个限制不是“拍脑袋的经验值”，而是：
 
-- 当前这套 QAT 路径会直接报错
+- **当前 QAT 图约束在代码里的直接体现。**
 
 ---
 
-## 7. `compare` 模式到底做了什么
+## 5. 代表性代码四：为什么 `compare` 模式更像真实工程决策
 
-这一点对理解实验结果非常重要。
+如果你只想看一个最能体现工程思路的地方，推荐回到：
 
-对应总入口：
+- [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:155) 的 `main()`
 
-- [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:155)
+最关键的不是它调用了哪些函数，而是它的分叉方式：
 
-当前 `compare` 模式的真实逻辑是：
-
-1. 先训练或复用同一份 float checkpoint
-2. 用这份 checkpoint 跑 PTQ
-3. 再用同一份 checkpoint 跑 QAT
-4. 把三组结果统一写到同一个实验目录
+- 先拿到一份 float checkpoint
+- 再用这份 checkpoint 跑 PTQ
+- 再用同一份 checkpoint 跑 QAT
 
 这意味着：
 
-- 当前比较口径不是“三条线各自独立训练”
+- 不是三条线各自独立训练、各自比较
 - 而是“同一个 float baseline 向下分叉”
 
 这样做的好处是：
 
 - 对比更干净
-- 更符合真实工程决策顺序
+- 更接近真实项目里先 PTQ、后 QAT 的决策顺序
 
-也就是：
+所以 `compare` 模式真正有代表性的地方，不是它名字叫 compare，而是：
 
-1. 先做 float baseline
-2. 再试 PTQ
-3. PTQ 不够再上 QAT
+- **它把一条真实的工程决策链写进了代码。**
 
 ---
 
-## 8. 最常用的运行方式
+## 6. 代表性代码五：quantizer 和 benchmark 在代码里怎么落地
 
-### 8.1 看支持的模型
+这条线还有一个很适合对着代码看的点：
 
-```bash
-python3 cv/image_classification/quantization/train.py --list-models
-```
+- **backend 不是只写在文档里的概念，而是真的在代码里落地成 quantizer 和 benchmark 行为。**
 
-### 8.2 快速烟测
+最值得一起看的两个函数是：
 
-```bash
-bash cv/image_classification/quantization/run_benchmark.sh smoke
-```
+- [build_quantizer(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:70)
+- [benchmark_deploy_inference(...)](/root/codes/DLProjects/cv/image_classification/quantization/quant_benchmark.py:74)
 
-### 8.3 一次完整对比
+它们分别回答：
 
-```bash
-python3 cv/image_classification/quantization/train.py \
-  --mode compare \
-  --dataset-type cifar100 \
-  --data-root ./datasets \
-  --model-name resnet18 \
-  --float-epochs 3 \
-  --qat-epochs 2 \
-  --calib-batches 20 \
-  --batch-size 128 \
-  --benchmark-warmup 5 \
-  --benchmark-iters 10 \
-  --backend x86_inductor \
-  --qat-device cuda \
-  --output-dir ./outputs/image_classification/torchao_quantization_trial
-```
+1. 当前 backend 会生成什么量化配置
+2. 最终 deploy benchmark 到底怎么测
 
-这条命令的意义是：
+当前实现里的关键区别是：
 
-- 先训练或复用一份 float baseline
-- 再做 PTQ
-- 再做 QAT
-- 最后按 CPU deploy 口径输出结果
+- `x86_inductor`
+  - 可以尝试用 `torch.compile(inductor)` 测 deploy 延迟
+- `xnnpack`
+  - 这份脚本不会直接给你真实 on-device 延迟
+  - 更适合先看精度和 eager CPU 延迟
 
-### 8.4 常见参数和代码位置怎么对照
-
-如果你一边跑命令一边看源码，下面这张表最省时间：
-
-| 参数 | 主要代码位置 | 作用 |
-| --- | --- | --- |
-| `--mode` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:13) + [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:203) | 决定只跑 float、PTQ、QAT，还是跑完整 compare |
-| `--backend` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:177) + [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:69) | 决定 quantizer 和 deploy benchmark 口径 |
-| `--calib-batches` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:94) + [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:145) | 控制 PTQ calibration 跑多少个 batch |
-| `--qat-device` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:154) + [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:210) | 决定 QAT fake-quant 微调放在哪个设备上 |
-| `--disable-observer-epoch` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:124) + [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:116) | 控制 QAT 后期何时关闭 observer |
-| `--freeze-bn-epoch` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:130) + [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:122) | 控制 QAT 后期何时冻结 BN 统计量 |
-| `--train-subset` / `--val-subset` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:100) + [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:146) | 控制烟测时的数据规模 |
-| `--benchmark-warmup` / `--benchmark-iters` | [quant_args.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_args.py:136) + [quant_benchmark.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_benchmark.py:35) | 控制时延 benchmark 的预热和采样轮数 |
-
-如果你只想跟一次完整链路，最推荐的源码顺序是：
-
-1. 先看 [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:155)
-2. 再看 [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:111) 里的数据和 float baseline
-3. 然后看 [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:153) 的 PTQ
-4. 最后看 [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:208) 的 QAT
+所以你在看结果文件时，不应该把所有 backend 的 `Deploy(ms)` 当成同一口径。
 
 ---
 
-## 9. 输出目录里的文件怎么读
+## 7. 最值得按什么顺序对着源码看
 
-当前实验跑完后，你最常看到这些文件：
+如果你准备把这一套代码真正看明白，推荐顺序是：
 
-- `float_best.pth`
-- `qat_prepared_best.pth`
-- `benchmark_results.json`
-- `benchmark_results.csv`
-- `benchmark_results.md`
+1. [train.py](/root/codes/DLProjects/cv/image_classification/quantization/train.py:155) 的 `main()`
+2. [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:114) 的 `build_datasets(...)`
+3. [quant_core.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_core.py:328) 的 `train_float_model(...)`
+4. [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:161) 的 `run_ptq(...)`
+5. [quant_pt2e.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_pt2e.py:220) 的 `run_qat(...)`
+6. [quant_benchmark.py](/root/codes/DLProjects/cv/image_classification/quantization/quant_benchmark.py:199) 的 `write_compare_artifacts(...)`
 
-它们分别表示：
+这条顺序对应的是：
 
-| 文件 | 用途 |
-| --- | --- |
-| `float_best.pth` | float 基线最优 checkpoint |
-| `qat_prepared_best.pth` | QAT 训练期间保存的最佳 prepared state |
-| `benchmark_results.json` | 程序化解析最方便 |
-| `benchmark_results.csv` | 最适合表格横向比较 |
-| `benchmark_results.md` | 最适合人工阅读和实验汇报 |
-
-如果你只想先快速判断：
-
-- PTQ 是否够用
-- QAT 是否值得继续做
-
-最值得先看的是：
-
-1. `benchmark_results.md`
-2. `benchmark_results.json`
+- 先看流程入口
+- 再看数据和 baseline
+- 再看 PTQ / QAT 分叉
+- 最后看 benchmark 和结果落盘
 
 ---
 
-## 10. 看结果之后下一步怎么做
+## 8. 哪些内容故意不在这篇里
 
-### 10.1 PTQ 和 float 差距很小
+为了减少文档重复，这篇刻意不再展开：
 
-这通常说明：
+- 目录文件分工
+- 常用运行命令
+- 参数表
+- 输出文件逐项说明
 
-- 当前模型对 static int8 比较友好
+这些内容统一放在：
 
-优先动作：
+- [cv/image_classification/quantization/README.md](../../cv/image_classification/quantization/README.md)
 
-- 先确认 deploy 延迟是否也有收益
-- 如果有收益，通常优先落地 PTQ
+而更基础的概念和路线选择，仍然放在：
 
-### 10.2 PTQ 掉点明显，但 QAT 追回来
+- [量化工作流：PTQ、QAT、Observer 与 Calibration](./quantization_workflows.md)
+- [torchao 量化路线总览与阅读指南](./torchao_quantization_guide.md)
 
-这通常说明：
+如果你已经看完这一篇，下一步最合理的是：
 
-- 量化误差是真实存在的
-- 模型也确实能通过 fake quant 训练适应这种误差
-
-优先动作：
-
-- 保留 PTQ 作为低成本基线
-- 再评估 QAT 的训练成本是否值得
-
-### 10.3 PTQ 和 QAT 都不理想
-
-更稳的排查顺序是：
-
-1. 先看 float baseline 是否足够强
-2. 再看 calibration 视角是否合理
-3. 再看 backend / quantizer 是否适合当前模型
-4. 最后才继续细调 QAT
-
-不要一上来就继续堆更多 QAT epoch。
-
----
-
-## 11. 当前这套示例刻意没有覆盖什么
-
-为了让这条线足够清楚，当前仓库 **没有** 试图一次覆盖所有量化任务。
-
-目前没有系统展开的部分包括：
-
-- `ViT / LLM / Embedding / Attention` 为主的 `quantize_()` 实战
-- 更细粒度的 observer / quantizer 定制
-- 真实移动端 `ExecuTorch / XNNPACK` on-device benchmark
-- weight-only / int4 / fp8 等更偏大模型或 GPU 的专题
-
-这不是遗漏，而是刻意取舍：
-
-- 先把 CNN + PT2E + static int8 这条主路径讲清楚
-
----
-
-## 12. 下一步该读什么
-
-如果你已经看懂这份文档，下一步通常有两个方向：
-
-1. 回到代码目录，直接对照 `train.py`、`quant_pt2e.py`
-2. 如果你想转去大模型 / `Linear` 主导量化，再回看 [torchao 量化路线总览](./torchao_quantization_guide.md)
+1. 回到 [README](../../cv/image_classification/quantization/README.md) 跑一遍命令
+2. 再对照 `train.py`、`quant_pt2e.py` 把流程串起来

@@ -56,6 +56,7 @@ python3 cv/image_classification/quantization/train.py \
   --benchmark-warmup 5 \
   --benchmark-iters 10 \
   --backend x86_inductor \
+  --float-device cuda \
   --output-dir ./outputs/image_classification/torchao_quantization_trial \
   --learning-rate 5e-4 \
   --qat-device cuda

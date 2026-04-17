@@ -28,6 +28,7 @@ except ImportError:
 
 
 def export_with_dynamic_batch(model, example_inputs, min_batch=None, max_batch=None):
+    """Export a model with a dynamic batch axis for the PT2E flow."""
     inferred_min_batch = min_batch
     if inferred_min_batch is None and example_inputs and isinstance(example_inputs[0], torch.Tensor):
         inferred_min_batch = int(example_inputs[0].shape[0])
@@ -67,6 +68,11 @@ def import_pt2e_apis():
 
 
 def build_quantizer(backend, is_qat):
+    """Create a backend-specific PT2E quantizer.
+
+    This example line only covers static int8 image classification, so the
+    x86 branch explicitly disables dynamic quantization when the API supports it.
+    """
     if backend == "xnnpack":
         try:
             from executorch.backends.xnnpack.quantizer.xnnpack_quantizer import (
@@ -120,6 +126,7 @@ def disable_observer_if_supported(torchao_module, model):
 
 
 def freeze_bn_stats_in_exported_graph(model):
+    """Freeze BatchNorm running stats inside an exported QAT graph."""
     batch_norm_targets = {
         torch.ops.aten._native_batch_norm_legit.default,
     }
@@ -143,6 +150,7 @@ def freeze_bn_stats_in_exported_graph(model):
 
 
 def calibrate(prepared_model, dataloader, max_batches):
+    """Run PTQ calibration on representative CPU inputs."""
     with torch.inference_mode():
         for batch_idx, (images, _) in enumerate(dataloader):
             if max_batches > 0 and batch_idx >= max_batches:
@@ -151,6 +159,7 @@ def calibrate(prepared_model, dataloader, max_batches):
 
 
 def run_ptq(args, calib_loader, val_loader, num_classes, checkpoint_path):
+    """Run the PTQ branch: float -> export -> prepare -> calibration -> convert."""
     torchao, prepare_pt2e, _, convert_pt2e = import_pt2e_apis()
     float_model = build_float_model_from_checkpoint(
         args,
@@ -161,6 +170,8 @@ def run_ptq(args, calib_loader, val_loader, num_classes, checkpoint_path):
     example_inputs = (torch.randn(2, 3, 224, 224),)
 
     print(f"\n开始 PTQ，backend: {args.backend}")
+    # PTQ starts from a float checkpoint on CPU, because this example measures
+    # final quantized accuracy and deploy latency with a CPU deployment target.
     exported_model = export_with_dynamic_batch(
         float_model,
         example_inputs,
@@ -170,6 +181,7 @@ def run_ptq(args, calib_loader, val_loader, num_classes, checkpoint_path):
     quantizer = build_quantizer(args.backend, is_qat=False)
     prepared_model = prepare_pt2e(exported_model, quantizer)
 
+    # Calibration only collects activation statistics. It does not update weights.
     calibrate(prepared_model, calib_loader, args.calib_batches)
     quantized_model = convert_pt2e(prepared_model)
     maybe_move_exported_model_to_eval(torchao, quantized_model)
@@ -206,8 +218,9 @@ def run_ptq(args, calib_loader, val_loader, num_classes, checkpoint_path):
 
 
 def run_qat(args, train_loader, val_loader, num_classes, checkpoint_path, output_dir):
+    """Run the QAT branch: float -> export -> prepare_qat -> fine-tune -> convert."""
     torchao, _, prepare_qat_pt2e, convert_pt2e = import_pt2e_apis()
-    qat_device = get_device(args.qat_device)
+    qat_device = get_device(args.qat_device, "qat-device")
     float_model = build_float_model_from_checkpoint(
         args,
         num_classes,
@@ -231,6 +244,8 @@ def run_qat(args, train_loader, val_loader, num_classes, checkpoint_path, output
         max_batch=args.batch_size,
     )
     quantizer = build_quantizer(args.backend, is_qat=True)
+    # After prepare_qat_pt2e, the model is no longer a plain float model:
+    # it becomes a training-ready graph that can simulate quantization error.
     prepared_model = prepare_qat_pt2e(exported_model, quantizer)
     del float_model
     gc.collect()
@@ -256,6 +271,8 @@ def run_qat(args, train_loader, val_loader, num_classes, checkpoint_path, output
     qat_checkpoint_path = output_dir / "qat_prepared_best.pth"
 
     for epoch in range(args.qat_epochs):
+        # The prepared graph keeps its own train/eval semantics, so we avoid
+        # toggling mode again inside train_one_epoch/evaluate.
         train_metrics = train_one_epoch(
             prepared_model,
             train_loader,
@@ -308,6 +325,8 @@ def run_qat(args, train_loader, val_loader, num_classes, checkpoint_path, output
         torch.cuda.empty_cache()
     else:
         prepared_model = prepared_model.to("cpu")
+    # Final conversion and benchmark are both moved back to CPU so the measured
+    # quantized model matches the deployment target discussed in the docs.
     quantized_model = convert_pt2e(prepared_model)
     maybe_move_exported_model_to_eval(torchao, quantized_model)
 

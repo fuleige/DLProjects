@@ -30,11 +30,14 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def get_device(device_name):
+def get_device(device_name, arg_name):
     if device_name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device_name == "cuda" and not torch.cuda.is_available():
-        raise ValueError("当前环境没有可用的 CUDA 设备，请改用 --float-device cpu。")
+        raise ValueError(
+            f"当前环境没有可用的 CUDA 设备，无法使用 --{arg_name} cuda。"
+            f"如需 CPU 调试，请显式传入 --{arg_name} cpu。"
+        )
     return torch.device(device_name)
 
 
@@ -109,6 +112,7 @@ def build_transforms(mean, std, interpolation):
 
 
 def build_datasets(args, train_transform, eval_transform):
+    """Build train/calibration/validation views for the classification task."""
     if args.dataset_type == "cifar100":
         train_dataset = datasets.CIFAR100(
             root=args.data_root,
@@ -143,6 +147,8 @@ def build_datasets(args, train_transform, eval_transform):
             )
         class_names = train_dataset.classes
 
+    # Calibration intentionally reuses the training split with eval-time
+    # transforms so PTQ sees data closer to deployment preprocessing.
     train_dataset = maybe_limit_dataset(train_dataset, args.train_subset)
     calib_dataset = maybe_limit_dataset(calib_dataset, args.train_subset)
     val_dataset = maybe_limit_dataset(val_dataset, args.val_subset)
@@ -326,7 +332,7 @@ def train_float_model(args, train_loader, val_loader, num_classes, class_names, 
     criterion = nn.CrossEntropyLoss()
 
     model, _, _, _ = build_model(args.model_name, num_classes, args.pretrained)
-    float_device = get_device(args.float_device)
+    float_device = get_device(args.float_device, "float-device")
     model = model.to(float_device)
     peak_cuda_memory_mb = None
 
@@ -346,8 +352,9 @@ def train_float_model(args, train_loader, val_loader, num_classes, class_names, 
             max_batches=args.max_val_batches,
         )
         print(format_metrics("Float", metrics, topk_name))
-        peak_cuda_memory_mb = get_peak_cuda_memory_mb(float_device)
-        return checkpoint_path, metrics, peak_cuda_memory_mb
+        # This branch does not retrain the float model, so we should not report
+        # evaluation-time CUDA usage as "train peak CUDA".
+        return checkpoint_path, metrics, None
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
